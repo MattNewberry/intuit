@@ -1,0 +1,18 @@
+{
+	"ImportPath": "github.com/MattNewberry/intuit",
+	"GoVersion": "go1.3",
+	"Deps": [
+		{
+			"ImportPath": "github.com/MattNewberry/oauth",
+			"Rev": "783b71b35626b8423589e05fc5f9c12aa01bc369"
+		},
+		{
+			"ImportPath": "github.com/nu7hatch/gouuid",
+			"Rev": "179d4d0c4d8d407a32af483c2354df1d2c91e6c3"
+		},
+		{
+			"ImportPath": "github.com/stretchr/testify/assert",
+			"Rev": "653e88ba5548fbd2a8f01d1500cef279a44af0a3"
+		}
+	]
+}
