@@ -22,9 +22,9 @@ import (
 )
 
 type assertion struct {
-	IssuerID    string
-	UserID      string
-	ReferenceID string
+	IssuerId    string
+	UserId      string
+	ReferenceId string
 	TimeNow     string
 	TimeBefore  string
 	TimeAfter   string
@@ -32,7 +32,7 @@ type assertion struct {
 }
 
 type signedInfo struct {
-	ReferenceID string
+	ReferenceId string
 	Digest      string
 }
 
@@ -43,9 +43,9 @@ type signature struct {
 
 func MakeSamlAssertion() (*oauth.AccessToken, error) {
 	a := &assertion{}
-	a.IssuerID = SessionConfiguration.SamlProviderID
-	a.UserID = SessionConfiguration.CustomerID
-	a.ReferenceID = a.newUUID()
+	a.IssuerId = SessionConfiguration.SamlProviderId
+	a.UserId = SessionConfiguration.CustomerId
+	a.ReferenceId = a.newUUId()
 
 	t := time.Now()
 	a.TimeNow = a.formatTimeFromDuration(t, 0)
@@ -114,14 +114,14 @@ func (a *assertion) formatTimeFromDuration(t time.Time, d time.Duration) string 
 	return fmt.Sprintf("%s.000Z", t.Add(d).UTC().Format(layout))
 }
 
-func (a *assertion) newUUID() string {
+func (a *assertion) newUUId() string {
 	uuid, _ := uuid.NewV4()
 	return fmt.Sprintf("_%s", strings.Replace(uuid.String(), "-", "", -1))
 }
 
 func signedInfoFromAssertion(a *assertion) *signedInfo {
 	s := &signedInfo{}
-	s.ReferenceID = a.ReferenceID
+	s.ReferenceId = a.ReferenceId
 
 	sha := sha1Encode(a.String())
 	s.Digest = base64.StdEncoding.EncodeToString([]byte(sha))

@@ -4,11 +4,9 @@ Go client for Intuit's Customer Account Data API
 package intuit
 
 import (
-	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"github.com/MattNewberry/oauth"
-	"net/http"
 	"time"
 )
 
@@ -68,11 +66,11 @@ type ChallengeSession struct {
 }
 
 type Configuration struct {
-	CustomerID          string
+	CustomerId          string
 	OAuthConsumerKey    string
 	OAuthConsumerSecret string
 	oAuthToken          *oauth.AccessToken
-	SamlProviderID      string
+	SamlProviderId      string
 	CertificatePath     string
 }
 
@@ -93,14 +91,14 @@ func Configure(configuration *Configuration) {
 }
 
 /*
-Set the customer ID for the current session.
+Set the customer Id for the current session.
 */
 func Scope(id string) {
 	if SessionConfiguration == nil {
 		SessionConfiguration = &Configuration{}
 	}
 
-	SessionConfiguration.CustomerID = id
+	SessionConfiguration.CustomerId = id
 }
 
 /*
@@ -108,13 +106,13 @@ Discover new accounts for a customer, returning an MFA response if applicable.
 
 In practice, the most efficient workflow is to cache the Institutions list and pass the username and password keys to this method. Without doing so, fetching the instituion's details will be required.
 */
-func DiscoverAndAddAccounts(institutionID string, username string, password string, usernameKey string, passwordKey string) (accounts []interface{}, challengeSession *ChallengeSession, err error) {
+func DiscoverAndAddAccounts(institutionId string, username string, password string, usernameKey string, passwordKey string) (accounts []interface{}, challengeSession *ChallengeSession, err error) {
 	userCredential := Credential{Name: usernameKey, Value: username}
 	passwordCredential := Credential{Name: passwordKey, Value: password}
 	credentials := Credentials{Credentials: []Credential{userCredential, passwordCredential}}
 
 	payload := &InstitutionLogin{Credentials: credentials, XMLNS: InstitutionXMLNS}
-	data, err := post(fmt.Sprintf("institutions/%v/logins", institutionID), payload, nil, nil)
+	data, err := post(fmt.Sprintf("institutions/%v/logins", institutionId), payload, nil, nil)
 
 	if err == nil {
 		// Success
@@ -125,7 +123,7 @@ func DiscoverAndAddAccounts(institutionID string, username string, password stri
 		httpError := err.(oauth.HTTPExecuteError)
 		headers := httpError.ResponseHeaders
 
-		challengeSession = &ChallengeSession{InstitutionId: institutionID}
+		challengeSession = &ChallengeSession{InstitutionId: institutionId}
 		challengeSession.SessionId = headers.Get("Challengesessionid")
 		challengeSession.NodeId = headers.Get("Challengenodeid")
 		challengeSession.Challenges = make([]Challenge, 0)
@@ -154,6 +152,16 @@ func DiscoverAndAddAccounts(institutionID string, username string, password stri
 		}
 	}
 	return
+}
+
+/*
+Return all accounts stored for the scoped customer.
+*/
+func LoginAccounts(loginId string) ([]interface{}, error) {
+	res, err := get("accounts", nil)
+
+	data := res.(map[string]interface{})
+	return data["accounts"].([]interface{}), err
 }
 
 /*
@@ -187,10 +195,10 @@ func Accounts() ([]interface{}, error) {
 }
 
 /*
-Return a specific account for the scoped customer, given it's ID.
+Return a specific account for the scoped customer, given it's Id.
 */
-func Account(accountID string) (map[string]interface{}, error) {
-	res, err := get(fmt.Sprintf("accounts/%s", accountID), nil)
+func Account(accountId string) (map[string]interface{}, error) {
+	res, err := get(fmt.Sprintf("accounts/%s", accountId), nil)
 
 	data := res.(map[string]interface{})
 	account := data["accounts"].([]interface{})
@@ -200,15 +208,19 @@ func Account(accountID string) (map[string]interface{}, error) {
 /*
 Get all transactions for an account, filtered by the given start and end times.
 */
-func Transactions(accountID string, start time.Time, end time.Time) (map[string]interface{}, error) {
+func Transactions(accountId string, start time.Time, end time.Time) (map[string]interface{}, error) {
 
 	params := make(map[string]string)
 	const timeFormat = "2006-01-02"
 	params["txnStartDate"] = start.Format(timeFormat)
 	params["tnxEndDate"] = end.Format(timeFormat)
-	res, err := get(fmt.Sprintf("accounts/%s/transactions", accountID), params)
+	res, err := get(fmt.Sprintf("accounts/%s/transactions", accountId), params)
 
-	data := res.(map[string]interface{})
+	var data map[string]interface{}
+	if err == nil {
+		data = res.(map[string]interface{})
+	}
+
 	return data, err
 }
 
@@ -228,8 +240,8 @@ func Institutions() ([]interface{}, error) {
 /*
 Retrieve an institution's detailed information.
 */
-func Institution(institutionID string) (data map[string]interface{}, err error) {
-	res, err := get(fmt.Sprintf("institutions/%s", institutionID), nil)
+func Institution(institutionId string) (data map[string]interface{}, err error) {
+	res, err := get(fmt.Sprintf("institutions/%s", institutionId), nil)
 
 	if res != nil {
 		data = res.(map[string]interface{})
@@ -248,61 +260,7 @@ func DeleteCustomer() error {
 /*
 Delete an account for the scoped customer.
 */
-func DeleteAccount(accountID string) error {
-	_, err := request(DELETE, "accounts/"+accountID, "", nil, nil)
+func DeleteAccount(accountId string) error {
+	_, err := request(DELETE, "accounts/"+accountId, "", nil, nil)
 	return err
-}
-
-func post(endpoint string, body interface{}, params map[string]string, headers map[string][]string) (interface{}, error) {
-	return request(POST, endpoint, body, params, headers)
-}
-
-func get(endpoint string, params map[string]string) (interface{}, error) {
-	return request(GET, endpoint, "", params, nil)
-}
-
-func request(method string, endpoint string, body interface{}, params map[string]string, headers map[string][]string) (data interface{}, err error) {
-	if SessionConfiguration.oAuthToken == nil {
-		SessionConfiguration.oAuthToken, err = MakeSamlAssertion()
-
-		if err != nil {
-			return
-		}
-	}
-
-	c := oauth.NewConsumer(
-		SessionConfiguration.OAuthConsumerKey,
-		SessionConfiguration.OAuthConsumerSecret,
-		oauth.ServiceProvider{})
-	c.AdditionalHeaders = map[string][]string{
-		"Accept":       []string{"application/json"},
-		"Content-Type": []string{"application/xml"},
-	}
-
-	for k, v := range headers {
-		c.AdditionalHeaders[k] = v
-	}
-
-	url := fmt.Sprintf("%s%s", BaseURL, endpoint)
-	var res *http.Response
-
-	if method == GET {
-		res, err = c.Get(url, params, SessionConfiguration.oAuthToken)
-	} else if method == POST {
-		payload, _ := xml.MarshalIndent(body, "  ", "    ")
-		res, err = c.Post(url, string(payload), params, SessionConfiguration.oAuthToken)
-	} else if method == DELETE {
-		res, err = c.Delete(url, params, SessionConfiguration.oAuthToken)
-	}
-
-	if err == nil {
-		d := json.NewDecoder(res.Body)
-		d.UseNumber()
-		err = d.Decode(&data)
-	} else {
-		httpError := err.(oauth.HTTPExecuteError)
-		json.Unmarshal(httpError.ResponseBodyBytes, &data)
-	}
-
-	return data, err
 }
