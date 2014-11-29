@@ -13,7 +13,20 @@ import (
 const (
 	InstitutionXMLNS = "http://schema.intuit.com/platform/fdatafeed/institutionlogin/v1"
 	ChallengeXMLNS   = "http://schema.intuit.com/platform/fdatafeed/challenge/v1"
+
+	BaseURL = "https://financialdatafeed.platform.intuit.com/v1/"
+	GET     = "GET"
+	POST    = "POST"
+	DELETE  = "DELETE"
+	PUT     = "PUT"
+
+	updateLoginType = 1 + iota
+	discoverAndAddType
 )
+
+var SessionConfiguration *Configuration
+
+type challengeContextType int
 
 type InstitutionLogin struct {
 	XMLName     xml.Name    `xml:"InstitutionLogin"`
@@ -59,10 +72,12 @@ type Choice struct {
 
 type ChallengeSession struct {
 	InstitutionId string
+	LoginId       string
 	SessionId     string
 	NodeId        string
 	Challenges    []Challenge
 	Answers       []interface{}
+	contextType   challengeContextType
 }
 
 type Configuration struct {
@@ -73,15 +88,6 @@ type Configuration struct {
 	SamlProviderId      string
 	CertificatePath     string
 }
-
-const (
-	BaseURL = "https://financialdatafeed.platform.intuit.com/v1/"
-	GET     = "GET"
-	POST    = "POST"
-	DELETE  = "DELETE"
-)
-
-var SessionConfiguration *Configuration
 
 /*
 Configure the client for access to your application.
@@ -118,39 +124,32 @@ func DiscoverAndAddAccounts(institutionId string, username string, password stri
 		// Success
 		accounts = data.(map[string]interface{})["accounts"].([]interface{})
 	} else if data != nil {
-		// MFA
-		challengeData := data.(map[string]interface{})
-		httpError := err.(oauth.HTTPExecuteError)
-		headers := httpError.ResponseHeaders
-
-		challengeSession = &ChallengeSession{InstitutionId: institutionId}
-		challengeSession.SessionId = headers.Get("Challengesessionid")
-		challengeSession.NodeId = headers.Get("Challengenodeid")
-		challengeSession.Challenges = make([]Challenge, 0)
-		challenges := challengeData["challenge"].([]interface{})
-
-		for _, c := range challenges {
-			chal := c.(map[string]interface{})
-
-			for _, v := range chal {
-				vData := v.([]interface{})
-				challenge := Challenge{}
-
-				for i, val := range vData {
-					if i == 0 {
-						challenge.Question = val.(string)
-						challenge.Choices = make([]Choice, 0)
-					} else {
-						cData := val.(map[string]interface{})
-						choice := Choice{Value: cData["val"].(string), Text: cData["text"].(string)}
-						challenge.Choices = append(challenge.Choices, choice)
-					}
-				}
-
-				challengeSession.Challenges = append(challengeSession.Challenges, challenge)
-			}
-		}
+		challengeSession = parseChallengeSession(discoverAndAddType, data, err)
+		challengeSession.InstitutionId = institutionId
 	}
+
+	return
+}
+
+/*
+Update login information for an account, returning an MFA response if applicable.
+*/
+func UpdateLoginAccount(loginId string, username string, password string, usernameKey string, passwordKey string) (accounts []interface{}, challengeSession *ChallengeSession, err error) {
+	userCredential := Credential{Name: usernameKey, Value: username}
+	passwordCredential := Credential{Name: passwordKey, Value: password}
+	credentials := Credentials{Credentials: []Credential{userCredential, passwordCredential}}
+
+	payload := &InstitutionLogin{Credentials: credentials, XMLNS: InstitutionXMLNS}
+	data, err := put(fmt.Sprintf("logins/%v?refresh=true", loginId), payload, nil, nil)
+
+	if err == nil {
+		// Success
+		accounts = data.(map[string]interface{})["accounts"].([]interface{})
+	} else if data != nil {
+		challengeSession = parseChallengeSession(updateLoginType, data, err)
+		challengeSession.LoginId = loginId
+	}
+
 	return
 }
 
@@ -158,7 +157,7 @@ func DiscoverAndAddAccounts(institutionId string, username string, password stri
 Return all accounts stored for the scoped customer.
 */
 func LoginAccounts(loginId string) ([]interface{}, error) {
-	res, err := get("accounts", nil)
+	res, err := get(fmt.Sprintf("logins/%v/accounts", loginId), nil)
 
 	data := res.(map[string]interface{})
 	return data["accounts"].([]interface{}), err
@@ -180,7 +179,13 @@ func RespondToChallenge(session *ChallengeSession) (data interface{}, err error)
 		"challengeSessionId": []string{session.SessionId},
 	}
 
-	data, err = post(fmt.Sprintf("institutions/%v/logins", session.InstitutionId), payload, nil, headers)
+	switch session.contextType {
+	case discoverAndAddType:
+		data, err = post(fmt.Sprintf("institutions/%v/logins", session.InstitutionId), payload, nil, headers)
+	case updateLoginType:
+		data, err = put(fmt.Sprintf("logins/%v", session.LoginId), payload, nil, headers)
+	}
+
 	return
 }
 
@@ -263,4 +268,40 @@ Delete an account for the scoped customer.
 func DeleteAccount(accountId string) error {
 	_, err := request(DELETE, "accounts/"+accountId, "", nil, nil)
 	return err
+}
+
+func parseChallengeSession(contextType challengeContextType, data interface{}, err error) *ChallengeSession {
+	challengeData := data.(map[string]interface{})
+	httpError := err.(oauth.HTTPExecuteError)
+	headers := httpError.ResponseHeaders
+
+	var challengeSession = &ChallengeSession{contextType: contextType}
+	challengeSession.SessionId = headers.Get("Challengesessionid")
+	challengeSession.NodeId = headers.Get("Challengenodeid")
+	challengeSession.Challenges = make([]Challenge, 0)
+	challenges := challengeData["challenge"].([]interface{})
+
+	for _, c := range challenges {
+		chal := c.(map[string]interface{})
+
+		for _, v := range chal {
+			vData := v.([]interface{})
+			challenge := Challenge{}
+
+			for i, val := range vData {
+				if i == 0 {
+					challenge.Question = val.(string)
+					challenge.Choices = make([]Choice, 0)
+				} else {
+					cData := val.(map[string]interface{})
+					choice := Choice{Value: cData["val"].(string), Text: cData["text"].(string)}
+					challenge.Choices = append(challenge.Choices, choice)
+				}
+			}
+
+			challengeSession.Challenges = append(challengeSession.Challenges, challenge)
+		}
+	}
+
+	return challengeSession
 }

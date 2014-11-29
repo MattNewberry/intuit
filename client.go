@@ -16,6 +16,10 @@ func get(endpoint string, params map[string]string) (interface{}, error) {
 	return request(GET, endpoint, "", params, nil)
 }
 
+func put(endpoint string, body interface{}, params map[string]string, headers map[string][]string) (interface{}, error) {
+	return request(PUT, endpoint, body, params, headers)
+}
+
 func request(method string, endpoint string, body interface{}, params map[string]string, headers map[string][]string) (data interface{}, err error) {
 	if SessionConfiguration.oAuthToken == nil {
 		SessionConfiguration.oAuthToken, err = MakeSamlAssertion()
@@ -46,6 +50,9 @@ func request(method string, endpoint string, body interface{}, params map[string
 	} else if method == POST {
 		payload, _ := xml.MarshalIndent(body, "  ", "    ")
 		res, err = c.Post(url, string(payload), params, SessionConfiguration.oAuthToken)
+	} else if method == PUT {
+		payload, _ := xml.MarshalIndent(body, "  ", "    ")
+		res, err = c.Put(url, string(payload), params, SessionConfiguration.oAuthToken)
 	} else if method == DELETE {
 		res, err = c.Delete(url, params, SessionConfiguration.oAuthToken)
 	}
