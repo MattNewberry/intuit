@@ -21,31 +21,31 @@ import (
 	"time"
 )
 
-type assertion struct {
-	IssuerId    string
-	UserId      string
-	ReferenceId string
-	TimeNow     string
-	TimeBefore  string
-	TimeAfter   string
-	Signature   string
+type Assertion struct {
+	IssuerId   string
+	UserId     string
+	RefId      string
+	TimeNow    string
+	TimeBefore string
+	TimeAfter  string
+	Signature  string
 }
 
-type signedInfo struct {
-	ReferenceId string
-	Digest      string
+type SignedInfo struct {
+	RefId  string
+	Digest string
 }
 
-type signature struct {
+type Signature struct {
 	SignatureValue string
 	SignedInfo     string
 }
 
 func MakeSamlAssertion() (*oauth.AccessToken, error) {
-	a := &assertion{}
+	a := &Assertion{}
 	a.IssuerId = SessionConfiguration.SamlProviderId
 	a.UserId = SessionConfiguration.CustomerId
-	a.ReferenceId = a.newUUId()
+	a.RefId = newUUId()
 
 	t := time.Now()
 	a.TimeNow = a.formatTimeFromDuration(t, 0)
@@ -54,7 +54,7 @@ func MakeSamlAssertion() (*oauth.AccessToken, error) {
 
 	si := signedInfoFromAssertion(a)
 
-	s := &signature{}
+	s := &Signature{}
 	s.SignatureValue = si.SignatureValue(SessionConfiguration.CertificatePath)
 	s.SignedInfo = si.String()
 
@@ -83,15 +83,15 @@ func MakeSamlAssertion() (*oauth.AccessToken, error) {
 	return tokens, err
 }
 
-func (a *assertion) String() string {
+func (a *Assertion) String() string {
 	return parseTemplate("saml_assertion", a)
 }
 
-func (s *signature) String() string {
+func (s *Signature) String() string {
 	return parseTemplate("saml_signature", s)
 }
 
-func (s *signedInfo) String() string {
+func (s *SignedInfo) String() string {
 	return parseTemplate("saml_signed", s)
 }
 
@@ -109,19 +109,19 @@ func sha1Encode(a string) string {
 	return string(h.Sum(nil))
 }
 
-func (a *assertion) formatTimeFromDuration(t time.Time, d time.Duration) string {
+func (a *Assertion) formatTimeFromDuration(t time.Time, d time.Duration) string {
 	const layout = "2006-01-02T15:04:05"
 	return fmt.Sprintf("%s.000Z", t.Add(d).UTC().Format(layout))
 }
 
-func (a *assertion) newUUId() string {
+func newUUId() string {
 	uuid, _ := uuid.NewV4()
 	return fmt.Sprintf("_%s", strings.Replace(uuid.String(), "-", "", -1))
 }
 
-func signedInfoFromAssertion(a *assertion) *signedInfo {
-	s := &signedInfo{}
-	s.ReferenceId = a.ReferenceId
+func signedInfoFromAssertion(a *Assertion) *SignedInfo {
+	s := &SignedInfo{}
+	s.RefId = a.RefId
 
 	sha := sha1Encode(a.String())
 	s.Digest = base64.StdEncoding.EncodeToString([]byte(sha))
@@ -129,7 +129,7 @@ func signedInfoFromAssertion(a *assertion) *signedInfo {
 	return s
 }
 
-func (s *signedInfo) SignatureValue(keyPath string) string {
+func (s *SignedInfo) SignatureValue(keyPath string) string {
 	pkey, err := ioutil.ReadFile(keyPath)
 	if err != nil {
 		panic(err)
